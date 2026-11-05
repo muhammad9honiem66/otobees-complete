@@ -1,5 +1,5 @@
 // كاش بسيط عشان اللعبة تفتح بسرعة كتطبيق
-const V = 'otobees-v1';
+const V = 'otobees-v2';
 const SHELL = ['./', './index.html', './firebase-config.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
