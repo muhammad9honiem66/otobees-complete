@@ -171,7 +171,7 @@ tr.mine td{background:rgba(255,234,110,.22)}
     </div>
     <div class="menu" id="mJoin" hidden>
       <label class="field">اسمك<input class="line-in" id="jName" maxlength="14" placeholder="اكتب اسمك" autocomplete="off"></label>
-      <label class="field">رقم الغرفة<input class="line-in" id="jCode" inputmode="numeric" maxlength="5" placeholder="٥ أرقام" autocomplete="off" style="letter-spacing:6px"></label>
+      <label class="field">رقم الغرفة<input class="line-in" id="jCode" maxlength="6" placeholder="مثلاً K7P2QX" autocomplete="off" autocapitalize="characters" spellcheck="false" style="letter-spacing:5px;text-transform:uppercase;direction:ltr"></label>
       <button class="btn red" id="doJoin">انضم</button>
     </div>
     <div id="demo" hidden>⚠️ وضع تجربة: اللعب دلوقتي على الجهاز ده بس. عشان تلعبوا أونلاين حط إعدادات Firebase في ملف firebase-config.js</div>
@@ -223,6 +223,8 @@ const $ = s => document.querySelector(s);
 const LETTERS = 'أ ب ت ث ج ح خ د ذ ر ز س ش ص ض ط ظ ع غ ف ق ك ل م ن ه و ي'.split(' ');
 const CATS = ['بنت','ولد','حيوان','جماد','نبات','بلاد'];
 const MAXP = 20;
+const CODE_ABC = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789', CODE_RE = /^[A-HJKMNP-Z2-9]{6}$/;
+const newCode = () => { const a=crypto.getRandomValues(new Uint32Array(6)); return [...a].map(x=>CODE_ABC[x%CODE_ABC.length]).join(''); };
 const ar = n => Number(n||0).toLocaleString('ar-EG');
 const esc = s => String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const rid = () => Math.random().toString(36).slice(2,10);
@@ -234,9 +236,13 @@ async function makeDB(){
     try{
       const A = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js');
       const D = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js');
-      const db = D.getDatabase(A.initializeApp(cfg)); const r = p => D.ref(db,p); let off = 0;
+      const U = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js');
+      const app = A.initializeApp(cfg), auth = U.getAuth(app);
+      // هوية سرية لكل جهاز (من غير إيميل ولا باسورد) — قواعد قاعدة البيانات بتعتمد عليها
+      const user = await new Promise((res,rej)=>{ const off=U.onAuthStateChanged(auth,u=>{ if(u){ off(); res(u); } }); U.signInAnonymously(auth).catch(rej); });
+      const db = D.getDatabase(app); const r = p => D.ref(db,p); let off = 0;
       D.onValue(r('.info/serverTimeOffset'), s => off = s.val()||0);
-      return { online:true,
+      return { online:true, uid:user.uid,
         on:(p,cb)=>D.onValue(r(p),s=>cb(s.val())), set:(p,v)=>D.set(r(p),v), update:(p,o)=>D.update(r(p),o),
         get:p=>D.get(r(p)).then(s=>s.val()),
         tx:(p,fn)=>D.runTransaction(r(p),fn).then(x=>({committed:x.committed,value:x.snapshot.val()})),
@@ -268,7 +274,7 @@ function localDB(){
 const DB = await makeDB();
 const memStore={}; const safe=st=>{ try{ st.setItem('_t','1'); st.removeItem('_t'); return st; }catch{ return memStore; } };
 const store = safe(DB.online ? localStorage : sessionStorage);   // وضع التجربة: كل تاب لعّيب
-const me = { pid: store.ak_pid || (store.ak_pid = rid()), name: localStorage.ak_name || '' };
+const me = { pid: DB.uid || store.ak_pid || (store.ak_pid = rid()), name: (()=>{ try{ return localStorage.ak_name||''; }catch{ return ''; } })() };
 
 /* ---------- العربي ---------- */
 const norm = s => (s||'').replace(/[ً-ْٰـ]/g,'').replace(/[أإآٱ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي').replace(/ؤ/g,'و').replace(/ئ/g,'ي').replace(/\s+/g,'').trim();
@@ -311,9 +317,10 @@ const takeName = el => { const n=el.value.trim(); if(!n){ toast('اكتب اسم
 
 $('#doCreate').onclick = async () => {
   if(!takeName($('#cName'))) return;
-  let c; for(let i=0;i<8;i++){ c=String(10000+Math.floor(Math.random()*90000)); if(!(await DB.get(`rooms/${c}/meta`))) break; }
+  let c; for(let i=0;i<8;i++){ c=newCode(); if(!(await DB.get(`rooms/${c}/meta`))) break; }
   const now=DB.now();
-  await DB.set(`rooms/${c}`,{ meta:{host:me.pid,created:now}, players:{[me.pid]:{name:me.name,j:now,on:true}}, phase:'lobby', round:{n:0} });
+  try{ await DB.set(`rooms/${c}`,{ meta:{host:me.pid,created:now}, players:{[me.pid]:{name:me.name,j:now,on:true}}, phase:'lobby', round:{n:0} }); }
+  catch(e){ console.error(e); return toast('في مشكلة في النت، جرّب تاني'); }
   enter(c);
 };
 $('#cName').onkeydown=e=>{ if(e.key==='Enter') $('#doCreate').click(); };
@@ -322,13 +329,14 @@ $('#jCode').onkeydown=e=>{ if(e.key==='Enter') $('#doJoin').click(); };
 $('#jName').onkeydown=e=>{ if(e.key==='Enter') $('#jCode').focus(); };
 
 async function join(c){
-  c = c.replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d));
-  if(!/^\d{5}$/.test(c)) return toast('رقم الغرفة ٥ أرقام');
-  const room = await DB.get(`rooms/${c}`);
+  c = c.replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).toUpperCase().replace(/[^A-Z0-9]/g,'');
+  if(!CODE_RE.test(c)) return toast('رقم الغرفة ٦ حروف وأرقام');
+  let room; try{ room = await DB.get(`rooms/${c}`); }catch(e){ console.error(e); return toast('في مشكلة في النت، جرّب تاني'); }
   if(!room?.meta) return toast('مفيش غرفة بالرقم ده');
   const P = room.players||{};
   if(!P[me.pid] && Object.entries(P).filter(([k,v])=>v.on).length >= MAXP) return toast('الغرفة مليانة (٢٠ لعّيب)');
-  await DB.update(`rooms/${c}/players/${me.pid}`,{ name:me.name, j:P[me.pid]?.j||DB.now(), on:true });
+  try{ await DB.update(`rooms/${c}/players/${me.pid}`,{ name:me.name.slice(0,16), j:P[me.pid]?.j||DB.now(), on:true }); }
+  catch(e){ console.error(e); return toast('مقدرتش أدخلك الغرفة، جرّب تاني'); }
   enter(c);
 }
 function enter(c){
