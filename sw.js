@@ -1,6 +1,6 @@
 // كاش بسيط عشان اللعبة تفتح بسرعة كتطبيق
-const V = 'otobees-v3';
-const SHELL = ['./', './index.html', './firebase-config.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
+const V = 'otobees-v4';
+const SHELL = ['./', './index.html', './firebase-config.js', './manifest.webmanifest', './icon-v3.svg', './icon-192-v3.png', './icon-512-v3.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(V).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
